@@ -48,6 +48,75 @@ if (bar) {
 }
 
 
+
+/* ---- cursor bloom, desktop only ---- */
+if (!reduce && window.matchMedia('(hover:hover) and (pointer:fine)').matches) {
+  const glow = document.createElement('div');
+  glow.className = 'glow';
+  document.body.appendChild(glow);
+  let gx = window.innerWidth / 2, gy = window.innerHeight / 2, cx = gx, cy = gy, raf = null;
+
+  const render = () => {
+    cx += (gx - cx) * 0.09;
+    cy += (gy - cy) * 0.09;
+    glow.style.transform = `translate3d(${cx}px, ${cy}px, 0)`;
+    if (Math.abs(gx - cx) > 0.5 || Math.abs(gy - cy) > 0.5) {
+      raf = requestAnimationFrame(render);
+    } else { raf = null; }
+  };
+
+  window.addEventListener('pointermove', (e) => {
+    gx = e.clientX; gy = e.clientY;
+    glow.classList.add('on');
+    if (!raf) raf = requestAnimationFrame(render);
+  }, { passive: true });
+
+  document.addEventListener('pointerleave', () => glow.classList.remove('on'));
+}
+
+/* ---- marquee: driven by requestAnimationFrame ----
+   CSS animations get killed outright by OS-level "reduce animations"
+   settings, which silently freezes the banner. Driving it here keeps it
+   moving at a constant 46px/sec regardless of viewport or CSS state. ---- */
+document.querySelectorAll('.marquee').forEach(m => {
+  const track = m.querySelector('.marquee__track');
+  if (!track) return;
+
+  track.style.animation = 'none';          // take CSS out of the equation
+
+  let offset = 0, half = 0, last = null, raf = null;
+  const SPEED = 46;                        // pixels per second
+
+  const measure = () => { half = track.scrollWidth / 2; };
+
+  const step = (now) => {
+    if (last === null) last = now;
+    const dt = Math.min((now - last) / 1000, 0.05);   // clamp after tab switch
+    last = now;
+    if (half > 0) {
+      offset = (offset + SPEED * dt) % half;
+      track.style.transform = `translate3d(${-offset}px,0,0)`;
+    }
+    raf = requestAnimationFrame(step);
+  };
+
+  const start = () => { if (!raf) { last = null; raf = requestAnimationFrame(step); } };
+  const stop  = () => { if (raf) { cancelAnimationFrame(raf); raf = null; } };
+
+  measure();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
+  window.addEventListener('resize', measure, { passive: true });
+  window.addEventListener('load', measure);
+
+  // pause when the tab is hidden or the strip is scrolled past — saves battery
+  document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(es => es.forEach(e => e.isIntersecting ? start() : stop()))
+      .observe(m);
+  } else { start(); }
+  start();
+});
+
 /* ---- scroll progress ---- */
 const prog = document.getElementById('progress');
 if (prog) {
